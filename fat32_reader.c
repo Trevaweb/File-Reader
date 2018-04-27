@@ -23,18 +23,19 @@
 
 uint32_t root_addr;
 uint32_t cwd;
-
+char cwdName[11];
 int info(uint16_t BPB_BytesPerSec, uint16_t BPB_SecPerClus, uint16_t BPB_RsvdSecCnt, uint16_t BPB_NumFATS, 	uint16_t BPB_FATSz32);
 
 int volume(FILE *fp);
 int stats(FILE *fp, char *inputName);
 int ls(FILE *FP, int BPB_RsvdSecCnt, int BPB_BytesPerSec);
-
-int readFile(FILE *fp, char *fileName, int position, int numBytes);
+int cd(FILE *fp, char *dirName);
+int readFile(FILE *fp, char *fileName, int position, int numBytes, int BPB_RsvdSecCnt, int BPB_BytesPerSec);
 
 //helper fumctions
 char* parseText(char *unParsedText);
 int getNextCluster(FILE *fp, int BPB_RsvdSecCnt, int BPB_BytesPerSec, int FATOffset);
+void remove_spaces(char *name);
 /* This is the main function of your project, and it will be run
  * first before all other functions.
  */
@@ -61,14 +62,6 @@ int main(int argc, char *argv[])
 	
 	/* Parse args and open our image file */
 	fp = fopen(argv[1],"r");
-	//if(fp != 0){
-	//	printf("%s\n",argv[1]);
-	//}
-	
-	//if(fp = NULL){
-	//	perror(argv[1]);
-	//	return -1;
-	//}
 	
 	/* Parse boot sector and get information */
 	//Get BPB_BytesPerSec
@@ -130,6 +123,8 @@ int main(int argc, char *argv[])
 	//Calculate root_addr
 	root_addr = FirstSectorofCluster * BPB_BytesPerSec;
 	cwd = root_addr;
+	strcpy(cwdName,"/");
+
 	printf("Root addr is 0x%x\n", root_addr);
 
 
@@ -137,17 +132,9 @@ int main(int argc, char *argv[])
        for each command besides quit. */
 	while(True) {
 		bzero(cmd_line, MAX_CMD);
-		printf("/]");
-		fgets(cmd_line,MAX_CMD,stdin);
-		/*char *cmdArg;
-		int i = 0;
-		char cmdArray[20]; 
-		cmdArg = strtok(cmd_line, " ");
-		while (cmdArg != NULL){
-    			cmdArray[i] = &cmdArg;
-			i++;
-   		 	cmdArg = strtok (NULL, " ");
-  		}*/			
+		//printf("%s]",cwdName[1]);
+		printf("%s]",cwdName);
+		fgets(cmd_line,MAX_CMD,stdin);		
 		/* Start comparing input */
 		if(strncmp(cmd_line,"info",4)==0) {
 			info(BPB_BytesPerSec, BPB_SecPerClus, BPB_RsvdSecCnt, BPB_NumFATS, BPB_FATSz32);
@@ -160,27 +147,60 @@ int main(int argc, char *argv[])
 		}
 		
 		else if(strncmp(cmd_line,"stat",4)==0) {
-			char secondArg[MAX_CMD]; 
-			for(int i = 0; i <= (strlen(cmd_line) - 5);i++){
-				if(cmd_line[strlen(cmd_line)-1] == '\n'){
-					cmd_line[strlen(cmd_line)-1]= '\0';
-				}
-				secondArg[i]= cmd_line[5+i];
+			int i = 0;
+			char *token;
+			char *args[3];
+			memset(args,0,sizeof(args));
+			token = strtok(cmd_line, " ");
+			while(token != NULL){
+				args[i] = token;
+				i++;
+				token = strtok(NULL," ");
 			}
-			stats(fp,secondArg);
+			char name[strlen(args[1])];
+			strcpy(name,args[1]);
+			for(int i=0;i<=strlen(args[1]);i++){
+				if (name[i] == '\n'){
+					name[i]='\0';
+				}
+			}
+			args[1] = name;
+			stats(fp,args[1]);
 		}
 
 		else if(strncmp(cmd_line,"cd",2)==0) {
-			printf("Going to cd!\n");
+			int i = 0;
+			char *token;
+			char *args[3];
+			memset(args,0,sizeof(args));
+			token = strtok(cmd_line, " ");
+			while(token != NULL){
+				args[i] = token;
+				i++;
+				token = strtok(NULL," ");
+			}
+				
+			cd(fp,args[2]);
 		}
+
 
 		else if(strncmp(cmd_line,"ls",2)==0) {
 			ls(fp,BPB_RsvdSecCnt, BPB_BytesPerSec);
 		}
 
-		else if(strncmp(cmd_line,"read",4)==0) {
-			
-			readFile(fp,"CONST.TXT",0,15);
+		else if(strncmp(cmd_line,"read",4)==0) {	
+			int i = 0;
+			char *token;
+			char *args[5];
+			memset(args,0,sizeof(args));
+			token = strtok(cmd_line, " ");
+			while(token != NULL){
+				args[i] = token;
+				i++;
+				token = strtok(NULL," ");
+			}
+				
+			readFile(fp,args[1],atoi(args[2]),atoi(args[3]),BPB_RsvdSecCnt, BPB_BytesPerSec);
 		}
 		
 		else if(strncmp(cmd_line,"quit",4)==0) {
@@ -229,7 +249,6 @@ int volume(FILE *fp){
 }
 
 int stats(FILE *fp, char *inputName){
-
 	char DIR_Name[10];
 	int i = 0;
 	int flag = 1;
@@ -243,9 +262,8 @@ int stats(FILE *fp, char *inputName){
 
 	while(flag){
 		//This must seek from the cwd directory
-		fseek(fp,root_addr + (64 * i),SEEK_SET);
+		fseek(fp,cwd + (64 * i),SEEK_SET);
 		fread(&DIR_Name, 1, 11, fp);	
-		
 		if(DIR_Name[0] == 0xE5){
 			flag = 1;
 		}else if(DIR_Name[0] == 0x00){
@@ -253,19 +271,19 @@ int stats(FILE *fp, char *inputName){
 			flag = 0;
 		}else{
 				//This must seek from the cwd directory
-				fseek(fp,((root_addr + (64 * i)) + 11),SEEK_SET);
+				fseek(fp,((cwd + (64 * i)) + 11),SEEK_SET);
 				fread(&DIR_Attr, 1, 1, fp);
 		  		//Get File size
-				fseek(fp,((root_addr + (64 * i)) + 28),SEEK_SET);	
+				fseek(fp,((cwd + (64 * i)) + 28),SEEK_SET);	
 				fread(&DIR_FileSize, 1, 4, fp);
 				DIR_FileSize = le32toh(DIR_FileSize);
 
 				//get high clust
-				fseek(fp,((root_addr + (64 * i)) + 20),SEEK_SET);	
+				fseek(fp,((cwd+ (64 * i)) + 20),SEEK_SET);	
 				fread(&DIR_FstClusHI, 1, 2, fp);
 				DIR_FstClusHI = le16toh(DIR_FstClusHI);
 				//get low clust
-				fseek(fp,((root_addr + (64 * i)) + 26),SEEK_SET);	
+				fseek(fp,((cwd + (64 * i)) + 26),SEEK_SET);	
 				fread(&DIR_FstClusLO, 1, 2, fp);
 				DIR_FstClusLO = le16toh(DIR_FstClusLO);
 				//Calc full clust
@@ -288,10 +306,6 @@ int stats(FILE *fp, char *inputName){
 						printf("Size is %i\n",DIR_FileSize);
 						printf("Attributes: ATTR_DIRECTORY\n");
 						printf("Next cluster number is 0x%x\n",result_num);
-						/*uint32_t FirstSectorofCluster;
-						FirstSectorofCluster = ((result_num - 2) * 1) +2050;
-						cwd = FirstSectorofCluster*512;
-						ls(fp,32,512);*/
 						break;
 					}
 				}
@@ -310,10 +324,8 @@ int ls(FILE *fp,int BPB_RsvdSecCnt, int BPB_BytesPerSec){
 	uint8_t DIR_Attr;
 
 	while(flag){
-		//This must seek from the cwd directory
 		fseek(fp,cwd + (64 * i),SEEK_SET);
 		fread(&DIR_Name, 1, 11, fp);	
-		
 		if(DIR_Name[0] == 0xE5){
 			flag = 1;
 		}else if(DIR_Name[0] == 0x00){
@@ -332,16 +344,33 @@ int ls(FILE *fp,int BPB_RsvdSecCnt, int BPB_BytesPerSec){
 			//Calc full clust
 			result_num = ((DIR_FstClusHI << 16) + DIR_FstClusLO);
 			result_num = le32toh(result_num);
-			//does it go on?
+			/*does it go on?
 			uint32_t FATOffset;
 			uint32_t nextClustNum;
 			FATOffset = result_num * 4; 
 			nextClustNum = getNextCluster(fp,BPB_RsvdSecCnt, BPB_BytesPerSec, FATOffset);
-			if(nextClustNum >= 0x0FFFFFF8){
+			if(nextClustNum *512 >= 0x0FFFFFF8){
 				flag = 0;
 			}else{
 				cwd = nextClustNum;
+			}*/
+			uint32_t FATOffset;
+			uint32_t nextClustNum;
+			FATOffset = result_num * 4; 
+			printf("result_num: %i\n",result_num);
+			printf("fatoffset: %i\n",FATOffset);
+			nextClustNum = getNextCluster(fp,BPB_RsvdSecCnt, BPB_BytesPerSec, FATOffset);
+			printf("nextClustNum: 0x%x\n",nextClustNum);
+			if(nextClustNum >= 0x0FFFFFF8){
+				flag = 0;
+				printf("eoc\n");
+			}else{
+				fseek(fp,(nextClustNum* 512),SEEK_SET);	
+				cwd = nextClustNum;
+				ls(fp,BPB_RsvdSecCnt,BPB_BytesPerSec);
 			}
+			
+			flag = 0;
 		}else{
 			//This must seek from the cwd directory
 			fseek(fp,((cwd + (64 * i)) + 11),SEEK_SET);
@@ -369,56 +398,16 @@ int getNextCluster(FILE *fp, int BPB_RsvdSecCnt, int BPB_BytesPerSec, int FATOff
 	uint32_t ThisFATEntOffset;
 	ThisFATSecNum = BPB_RsvdSecCnt + (FATOffset / BPB_BytesPerSec);
 	ThisFATEntOffset = FATOffset % BPB_BytesPerSec;	
-	fseek(fp,ThisFATSecNum+ThisFATEntOffset,SEEK_SET);
+	fseek(fp,(ThisFATSecNum*512),SEEK_SET);
+	fseek(fp,ThisFATEntOffset,SEEK_CUR);
 	fread(&nextClustNum, 1, 4, fp);
 	nextClustNum = le32toh(nextClustNum);
 	return nextClustNum;
 	
 }
-/*
-int ls(FILE *fp){
 
-	char DIR_Name[10];
-	int i = 0;
-	int flag = 1;
-	uint8_t DIR_Attr;
+int cd(FILE *fp, char *dirName){
 
-	while(flag){
-		//This must seek from the cwd directory
-		fseek(fp,root_addr + (64 * i),SEEK_SET);
-		fread(&DIR_Name, 1, 11, fp);	
-		
-		if(DIR_Name[0] == 0xE5){
-			flag = 1;
-		}else if(DIR_Name[0] == 0x00){
-			flag = 0;
-		}else{
-			//This must seek from the cwd directory
-			fseek(fp,((root_addr + (64 * i)) + 11),SEEK_SET);
-			fread(&DIR_Attr, 1, 1, fp);
-			if(DIR_Attr == 0x20){
-				strcpy(DIR_Name, parseText(DIR_Name));	
-				printf("%s   ",DIR_Name);
-			}else if(DIR_Attr == 0x10){
-				char *token; 
-				token = strtok(DIR_Name," ");
-				printf("%s   ",token);
-			}
-		}
-		i++;
-	}
-	printf("\n");
-	return 1;
-}
-*/
-int cd(FILE *fp){
-	
-}
-
-
-int readFile(FILE *fp, char *fileName, int position, int numBytes){
-	FILE *file;
-	char fileData[100];
 	char DIR_Name[10];
 	int i = 0;
 	int flag = 1;
@@ -428,12 +417,81 @@ int readFile(FILE *fp, char *fileName, int position, int numBytes){
 	uint16_t DIR_FstClusLO = 0;
 	uint16_t DIR_FstClusHI = 0;
         uint32_t result_num = 0;
-	
+
+	char inputName[10] = "DIR";
+	while(flag){
+		//This must seek from the cwd directory
+		fseek(fp,cwd + (64 * i),SEEK_SET);
+		fread(&DIR_Name, 1, 11, fp);	
+		
+		if(DIR_Name[0] == 0xE5){
+			flag = 1;
+		}else if(DIR_Name[0] == 0x00){
+			printf("Error: file/directory does not exist\n");
+			flag = 0;
+		}else{
+				//This must seek from the cwd directory
+				fseek(fp,((cwd + (64 * i)) + 11),SEEK_SET);
+				fread(&DIR_Attr, 1, 1, fp);
+		  		//Get File size
+				fseek(fp,((cwd + (64 * i)) + 28),SEEK_SET);	
+				fread(&DIR_FileSize, 1, 4, fp);
+				DIR_FileSize = le32toh(DIR_FileSize);
+
+				//get high clust
+				fseek(fp,((cwd + (64 * i)) + 20),SEEK_SET);	
+				fread(&DIR_FstClusHI, 1, 2, fp);
+				DIR_FstClusHI = le16toh(DIR_FstClusHI);
+				//get low clust
+				fseek(fp,((cwd + (64 * i)) + 26),SEEK_SET);	
+				fread(&DIR_FstClusLO, 1, 2, fp);
+				DIR_FstClusLO = le16toh(DIR_FstClusLO);
+				//Calc full clust
+			        result_num = ((DIR_FstClusHI << 16) + DIR_FstClusLO);
+        			result_num = le32toh(result_num);
+			
+					
+				//if its a directory
+				if(DIR_Attr == 0x10){
+					char *token; 
+					token = strtok(DIR_Name," ");
+					if(strncmp(token,inputName,10)==0){
+						uint32_t FirstSectorofCluster;
+						FirstSectorofCluster = ((result_num - 2) * 1) +2050;
+						cwd = FirstSectorofCluster*512;
+						strcpy(cwdName,token);
+						printf("cwd : 0x%x\n",cwd);
+						printf("DIRNAME: %s\n",token);
+						
+						//ls(fp,32,512);
+						break;
+					}
+				}
+			
+		}
+		i++;
+	}
+	return 1;
+}
+int readFile(FILE *fp, char *fileName, int position, int numBytes, int BPB_RsvdSecCnt, int BPB_BytesPerSec){
+	FILE *file;
+	char fileData[511];
+	char DIR_Name[10];
+	int i = 0;
+	int flag = 1;
+	uint8_t DIR_Attr;
+	uint32_t DIR_FileSize;
+	//used for next cluster
+	uint16_t DIR_FstClusLO = 0;
+	uint16_t DIR_FstClusHI = 0;
+        uint32_t result_num = 0;
+	int numBytesLeft;
+	uint32_t FirstSectorofCluster;
 
 
 	while(flag){
 		//This must seek from the cwd directory
-		fseek(fp,root_addr + (64 * i),SEEK_SET);
+		fseek(fp,cwd + (64 * i),SEEK_SET);
 		fread(&DIR_Name, 1, 11, fp);	
 		
 		if(DIR_Name[0] == 0xE5){
@@ -443,19 +501,19 @@ int readFile(FILE *fp, char *fileName, int position, int numBytes){
 			flag = 0;
 		}else{
 				//This must seek from the cwd directory
-				fseek(fp,((root_addr + (64 * i)) + 11),SEEK_SET);
+				fseek(fp,((cwd + (64 * i)) + 11),SEEK_SET);
 				fread(&DIR_Attr, 1, 1, fp);
 		  		//Get File size
-				fseek(fp,((root_addr + (64 * i)) + 28),SEEK_SET);	
+				fseek(fp,((cwd + (64 * i)) + 28),SEEK_SET);	
 				fread(&DIR_FileSize, 1, 4, fp);
 				DIR_FileSize = le32toh(DIR_FileSize);
 
 				//get high clust
-				fseek(fp,((root_addr + (64 * i)) + 20),SEEK_SET);	
+				fseek(fp,((cwd + (64 * i)) + 20),SEEK_SET);	
 				fread(&DIR_FstClusHI, 1, 2, fp);
 				DIR_FstClusHI = le16toh(DIR_FstClusHI);
 				//get low clust
-				fseek(fp,((root_addr + (64 * i)) + 26),SEEK_SET);	
+				fseek(fp,((cwd + (64 * i)) + 26),SEEK_SET);	
 				fread(&DIR_FstClusLO, 1, 2, fp);
 				DIR_FstClusLO = le16toh(DIR_FstClusLO);
 				//Calc full clust
@@ -465,15 +523,42 @@ int readFile(FILE *fp, char *fileName, int position, int numBytes){
 				if(DIR_Attr == 0x20){	
 					strcpy(DIR_Name, parseText(DIR_Name));
 					if(strncmp(DIR_Name,fileName,10)==0){
-						uint32_t FirstSectorofCluster;
-						FirstSectorofCluster = ((result_num - 2) * 1) +2050;
-						fseek(fp,(FirstSectorofCluster* 512) + position,SEEK_SET);	
-						fread(&fileData, 1, numBytes, fp);
-						printf("%s\n",fileData);
-						break;
+							FirstSectorofCluster = ((result_num - 2) * 1) +2050;
+							printf("numbyte length: %i\n",numBytes);
+						if(numBytes > 512){
+							fseek(fp,(FirstSectorofCluster* 512) + position,SEEK_SET);
+							fread(&fileData, 1, 512, fp);
+							printf("fileData length: %i\n",strlen(fileData));
+							numBytesLeft = numBytes - 512;
+							printf("first: %s\n",fileData);
+						
+							uint32_t FATOffset;
+							uint32_t nextClustNum;
+							char restFileData[512];
+							FATOffset = result_num * 4; 
+							printf("result_num: %i\n",result_num);
+							printf("fatoffset: %i\n",FATOffset);
+
+							nextClustNum = getNextCluster(fp,BPB_RsvdSecCnt, BPB_BytesPerSec, FATOffset);
+							printf("nextClustNum: 0x%x\n",nextClustNum);
+							if(nextClustNum >= 0x0FFFFFF8){
+								flag = 0;
+								printf("eoc: %s\n",fileData);
+							}else{
+								fseek(fp,(nextClustNum* 512),SEEK_SET);	
+								fread(&restFileData, 1, numBytesLeft, fp);
+								printf("second: %s\n",restFileData);
+								//strncat(fileData,restFileData,strlen(restFileData));
+							}
+						
+						}else{		
+							fseek(fp,(FirstSectorofCluster* 512) + position,SEEK_SET);
+							fread(&fileData, 1, numBytes, fp);
+							printf("%s\n",fileData);
+							break;
+						}
 					}
 				}
-			
 		}
 		i++;
 	}
@@ -496,4 +581,35 @@ char* parseText(char *unParsedName){
 		}
 	}
 	return firstName;
+}
+void remove_spaces(char *name)
+{
+	char newName[12] = {0};
+
+	int i;
+	int j;
+
+	for (i=0;i<8;i++) {
+		if(name[i] != 0x20) {
+			newName[i]=name[i];
+		}
+		else {
+			break;
+		}
+
+	}
+
+	/* i is where we need to start writing */
+	if(name[8] != 0x20){
+		newName[i] = '.';
+		i++;
+		for (j=8; j<11; j++){
+			newName[i] = name[j];
+			i++;
+		}
+	}
+	printf("Name is %s\n", name);
+	printf("newname is %s\n", newName);
+
+	strcpy(name,newName);
 }
