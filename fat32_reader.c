@@ -142,7 +142,6 @@ int main(int argc, char *argv[])
 		}
 
 		else if(strncmp(cmd_line,"volume",6)==0) {
-			printf("Going to run volume!\n");
 			volume(fp);
 		}
 		
@@ -344,16 +343,6 @@ int ls(FILE *fp,int BPB_RsvdSecCnt, int BPB_BytesPerSec){
 			//Calc full clust
 			result_num = ((DIR_FstClusHI << 16) + DIR_FstClusLO);
 			result_num = le32toh(result_num);
-			/*does it go on?
-			uint32_t FATOffset;
-			uint32_t nextClustNum;
-			FATOffset = result_num * 4; 
-			nextClustNum = getNextCluster(fp,BPB_RsvdSecCnt, BPB_BytesPerSec, FATOffset);
-			if(nextClustNum *512 >= 0x0FFFFFF8){
-				flag = 0;
-			}else{
-				cwd = nextClustNum;
-			}*/
 			uint32_t FATOffset;
 			uint32_t nextClustNum;
 			FATOffset = result_num * 4; 
@@ -366,7 +355,7 @@ int ls(FILE *fp,int BPB_RsvdSecCnt, int BPB_BytesPerSec){
 				printf("eoc\n");
 			}else{
 				fseek(fp,(nextClustNum* 512),SEEK_SET);	
-				cwd = nextClustNum;
+				cwd = nextClustNum*512;
 				ls(fp,BPB_RsvdSecCnt,BPB_BytesPerSec);
 			}
 			
@@ -447,8 +436,8 @@ int cd(FILE *fp, char *dirName){
 				fread(&DIR_FstClusLO, 1, 2, fp);
 				DIR_FstClusLO = le16toh(DIR_FstClusLO);
 				//Calc full clust
-			        result_num = ((DIR_FstClusHI << 16) + DIR_FstClusLO);
-        			result_num = le32toh(result_num);
+			    result_num = ((DIR_FstClusHI << 16) + DIR_FstClusLO);
+        		result_num = le32toh(result_num);
 			
 					
 				//if its a directory
@@ -460,10 +449,6 @@ int cd(FILE *fp, char *dirName){
 						FirstSectorofCluster = ((result_num - 2) * 1) +2050;
 						cwd = FirstSectorofCluster*512;
 						strcpy(cwdName,token);
-						printf("cwd : 0x%x\n",cwd);
-						printf("DIRNAME: %s\n",token);
-						
-						//ls(fp,32,512);
 						break;
 					}
 				}
@@ -534,20 +519,21 @@ int readFile(FILE *fp, char *fileName, int position, int numBytes, int BPB_RsvdS
 						
 							uint32_t FATOffset;
 							uint32_t nextClustNum;
-							char restFileData[512];
+							//char restFileData[512];
 							FATOffset = result_num * 4; 
 							printf("result_num: %i\n",result_num);
 							printf("fatoffset: %i\n",FATOffset);
 
 							nextClustNum = getNextCluster(fp,BPB_RsvdSecCnt, BPB_BytesPerSec, FATOffset);
-							printf("nextClustNum: 0x%x\n",nextClustNum);
+							printf("nextClustNum: 0x%x\n",nextClustNum*512);
 							if(nextClustNum >= 0x0FFFFFF8){
 								flag = 0;
 								printf("eoc: %s\n",fileData);
 							}else{
 								fseek(fp,(nextClustNum* 512),SEEK_SET);	
-								fread(&restFileData, 1, numBytesLeft, fp);
-								printf("second: %s\n",restFileData);
+								memset(fileData,0,sizeof(fileData));
+								fread(&fileData, 1, numBytesLeft, fp);
+								printf("second: %s\n",fileData);
 								//strncat(fileData,restFileData,strlen(restFileData));
 							}
 						
