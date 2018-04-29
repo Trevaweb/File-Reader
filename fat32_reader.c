@@ -346,13 +346,9 @@ int ls(FILE *fp,int BPB_RsvdSecCnt, int BPB_BytesPerSec){
 			uint32_t FATOffset;
 			uint32_t nextClustNum;
 			FATOffset = result_num * 4; 
-			printf("result_num: %i\n",result_num);
-			printf("fatoffset: %i\n",FATOffset);
 			nextClustNum = getNextCluster(fp,BPB_RsvdSecCnt, BPB_BytesPerSec, FATOffset);
-			printf("nextClustNum: 0x%x\n",nextClustNum);
 			if(nextClustNum >= 0x0FFFFFF8){
 				flag = 0;
-				printf("eoc\n");
 			}else{
 				fseek(fp,(nextClustNum* 512),SEEK_SET);	
 				cwd = nextClustNum*512;
@@ -361,12 +357,13 @@ int ls(FILE *fp,int BPB_RsvdSecCnt, int BPB_BytesPerSec){
 			
 			flag = 0;
 		}else{
-			//This must seek from the cwd directory
 			fseek(fp,((cwd + (64 * i)) + 11),SEEK_SET);
 			fread(&DIR_Attr, 1, 1, fp);
+			//if its a file print it
 			if(DIR_Attr == 0x20){
 				strcpy(DIR_Name, parseText(DIR_Name));	
 				printf("%s   ",DIR_Name);
+			//if its a dir print it
 			}else if(DIR_Attr == 0x10){
 				char *token; 
 				token = strtok(DIR_Name," ");
@@ -409,7 +406,6 @@ int cd(FILE *fp, char *dirName){
 
 	char inputName[10] = "DIR";
 	while(flag){
-		//This must seek from the cwd directory
 		fseek(fp,cwd + (64 * i),SEEK_SET);
 		fread(&DIR_Name, 1, 11, fp);	
 		
@@ -440,7 +436,8 @@ int cd(FILE *fp, char *dirName){
         		result_num = le32toh(result_num);
 			
 					
-				//if its a directory
+				//if its a directory find where its located and set the 
+				//cwd to it
 				if(DIR_Attr == 0x10){
 					char *token; 
 					token = strtok(DIR_Name," ");
@@ -509,20 +506,16 @@ int readFile(FILE *fp, char *fileName, int position, int numBytes, int BPB_RsvdS
 					strcpy(DIR_Name, parseText(DIR_Name));
 					if(strncmp(DIR_Name,fileName,10)==0){
 							FirstSectorofCluster = ((result_num - 2) * 1) +2050;
-							printf("numbyte length: %i\n",numBytes);
+						//if we are reading more than one cluster we need to 
+						//find the next cluster
 						if(numBytes > 512){
 							fseek(fp,(FirstSectorofCluster* 512) + position,SEEK_SET);
 							fread(&fileData, 1, 512, fp);
-							printf("fileData length: %i\n",strlen(fileData));
 							numBytesLeft = numBytes - 512;
-							printf("first: %s\n",fileData);
 						
 							uint32_t FATOffset;
 							uint32_t nextClustNum;
-							//char restFileData[512];
 							FATOffset = result_num * 4; 
-							printf("result_num: %i\n",result_num);
-							printf("fatoffset: %i\n",FATOffset);
 
 							nextClustNum = getNextCluster(fp,BPB_RsvdSecCnt, BPB_BytesPerSec, FATOffset);
 							printf("nextClustNum: 0x%x\n",nextClustNum*512);
@@ -534,9 +527,8 @@ int readFile(FILE *fp, char *fileName, int position, int numBytes, int BPB_RsvdS
 								memset(fileData,0,sizeof(fileData));
 								fread(&fileData, 1, numBytesLeft, fp);
 								printf("second: %s\n",fileData);
-								//strncat(fileData,restFileData,strlen(restFileData));
 							}
-						
+						//otherwise we can just read from the file	
 						}else{		
 							fseek(fp,(FirstSectorofCluster* 512) + position,SEEK_SET);
 							fread(&fileData, 1, numBytes, fp);
@@ -550,7 +542,7 @@ int readFile(FILE *fp, char *fileName, int position, int numBytes, int BPB_RsvdS
 	}
 	return 1;
 }
-
+//parses file names so thye have a period in them
 char* parseText(char *unParsedName){
 	char *token;
 	static char firstName[10];
@@ -567,35 +559,4 @@ char* parseText(char *unParsedName){
 		}
 	}
 	return firstName;
-}
-void remove_spaces(char *name)
-{
-	char newName[12] = {0};
-
-	int i;
-	int j;
-
-	for (i=0;i<8;i++) {
-		if(name[i] != 0x20) {
-			newName[i]=name[i];
-		}
-		else {
-			break;
-		}
-
-	}
-
-	/* i is where we need to start writing */
-	if(name[8] != 0x20){
-		newName[i] = '.';
-		i++;
-		for (j=8; j<11; j++){
-			newName[i] = name[j];
-			i++;
-		}
-	}
-	printf("Name is %s\n", name);
-	printf("newname is %s\n", newName);
-
-	strcpy(name,newName);
 }
